@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Symposium Quiz</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen flex flex-col justify-between">
+
+    <header class="bg-blue-600 text-white p-4 shadow-md text-center">
+        <h1 class="text-xl font-bold tracking-wide">HEALTH SYMPOSIUM QUIZ</h1>
+        <p id="user-display" class="text-xs opacity-80 mt-1 hidden"></p>
+    </header>
+
+    <main class="flex-grow flex items-center justify-center p-4">
+        
+        <div id="screen-reg" class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
+            <h2 class="text-2xl font-bold mb-2 text-center text-slate-800">Welcome!</h2>
+            <p class="text-sm text-slate-500 text-center mb-6">Please enter your details to join the live quiz.</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">FULL NAME</label>
+                    <input type="text" id="reg-name" placeholder="Dr. Jane Doe" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">MEMBER ID / PHONE NUMBER</label>
+                    <input type="text" id="reg-id" placeholder="9876543210" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <button id="btn-join" class="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold shadow-lg hover:bg-blue-700 transition active:scale-98 mt-2">
+                    Join Quiz Room
+                </button>
+            </div>
+        </div>
+
+        <div id="screen-waiting" class="hidden text-center max-w-sm">
+            <div class="animate-bounce bg-blue-100 text-blue-600 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 shadow">
+                ⏱️
+            </div>
+            <h2 class="text-xl font-bold text-slate-800">Connected to Quizmaster</h2>
+            <p class="text-slate-500 text-sm mt-2">The session is underway. The next question will instantly pop up on your screen when the Quizmaster launches it from the hall.</p>
+        </div>
+
+        <div id="screen-quiz" class="hidden bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
+            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden mb-4">
+                <div id="timer-bar" class="bg-amber-500 h-full w-full transition-all duration-1000 linear"></div>
+            </div>
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-xs font-bold px-2.5 py-1 rounded bg-slate-100 text-slate-600 uppercase tracking-wider">Live Question</span>
+                <span id="timer-text" class="text-sm font-bold text-amber-600">60s remaining</span>
+            </div>
+
+            <h3 id="quiz-question" class="text-lg font-semibold text-slate-800 mb-6">Loading question...</h3>
+
+            <div class="space-y-3" id="options-container">
+                </div>
+        </div>
+
+    </main>
+
+    <footer class="p-4 text-center text-xs text-slate-400">
+        Powered by Real-Time Data Engine
+    </footer>
+
+    <script>
+        // REPLACE THESE WITH YOUR ACTUAL SUPABASE CREDENTIALS FROM SETTINGS > API
+        const SUPABASE_URL = "YOUR_SUPABASE_URL_HERE";
+        const SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY_HERE";
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const screenReg = document.getElementById('screen-reg');
+        const screenWaiting = document.getElementById('screen-waiting');
+        const screenQuiz = document.getElementById('screen-quiz');
+        const userDisplay = document.getElementById('user-display');
+
+        let attendeeName = "";
+        let attendeeId = "";
+        let timerInterval = null;
+        let activeQuestionId = null;
+        let correctAnswer = "";
+
+        // Handle Registration
+        document.getElementById('btn-join').addEventListener('click', async () => {
+            attendeeName = document.getElementById('reg-name').value.trim();
+            attendeeId = document.getElementById('reg-id').value.trim();
+
+            if (!attendeeName || !attendeeId) {
+                alert("Please fill in both fields to participate.");
+                return;
+            }
+
+            const { error } = await supabaseClient
+                .from('leaderboard')
+                .upsert({ attendee_name: attendeeName, identifier: attendeeId }, { onConflict: 'identifier' });
+
+            if (error) {
+                alert("Connection failed. Please check your network.");
+                return;
+            }
+
+            screenReg.classList.add('hidden');
+            screenWaiting.classList.remove('hidden');
+            userDisplay.textContent = `Logged in as: ${attendeeName}`;
+            userDisplay.classList.remove('hidden');
+
+            initializeRealtimeStream();
+        });
+
+        // Listen for Realtime Quiz Updates
+        function initializeRealtimeStream() {
+            supabaseClient
+                .channel('quiz_state_changes')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'quiz_state' }, payload => {
+                    handleStateUpdate(payload.new);
+                })
+                .subscribe();
+
+            // Initial baseline check
+            supabaseClient.from('quiz_state').select('*').eq('id', 1).single().then(({ data }) => {
+                if (data) handleStateUpdate(data);
+            });
+        }
+
+        // Action the updates pushed by the Quizmaster
+        function handleStateUpdate(state) {
+            clearInterval(timerInterval);
+            
+            if (!state.is_live) {
+                screenQuiz.classList.add('hidden');
+                screenWaiting.classList.remove('hidden');
+                return;
+            }
+
+            activeQuestionId = state.active_q_id;
+            displayQuestion(state);
+        }
+
+        // Render the live question data received directly from the database broadcast
+        function displayQuestion(state) {
+            // These custom text fields will be fed into the database by your Streamlit script
+            document.getElementById('quiz-question').textContent = state.question_text || "Loading question...";
+            correctAnswer = state.correct_opt;
+
+            const options = {
+                A: state.opt_a,
+                B: state.opt_b,
+                C: state.opt_c,
+                D: state.opt_d
+            };
+
+            const container = document.getElementById('options-container');
+            container.innerHTML = '';
+
+            Object.entries(options).forEach(([key, val]) => {
+                if (!val) return; // Skip if option is empty
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left px-4 py-3 rounded-xl border border-slate-200 font-medium hover:bg-slate-50 transition active:bg-blue-50 focus:ring-2 focus:ring-blue-500 text-sm flex items-center gap-3 bg-white";
+                btn.innerHTML = `<span class="bg-slate-100 text-slate-600 font-bold w-6 h-6 rounded-full flex items-center justify-center text-xs border border-slate-200">${key}</span> ${val}`;
+                btn.onclick = () => submitAnswer(key, btn);
+                container.appendChild(btn);
+            });
+
+            screenWaiting.classList.add('hidden');
+            screenQuiz.classList.remove('hidden');
+
+            // 60-second synchronized timer logic
+            const startTime = new Date(state.start_timestamp).getTime();
+            timerInterval = setInterval(() => {
+                const now = new Date().getTime();
+                const elapsedSeconds = Math.floor((now - startTime) / 1000);
+                const remaining = Math.max(0, 60 - elapsedSeconds);
+
+                document.getElementById('timer-text').textContent = `${remaining}s remaining`;
+                document.getElementById('timer-bar').style.width = `${(remaining / 60) * 100}%`;
+
+                if (remaining <= 0) {
+                    clearInterval(timerInterval);
+                    lockScreen();
+                }
+            }, 1000);
+        }
+
+        // Process answer selection
+        async function submitAnswer(selectedOption, selectedButton) {
+            lockScreen();
+            selectedButton.classList.add('border-blue-500', 'bg-blue-50');
+
+            // If the answer is correct, calculate and reward points instantly
+            if (selectedOption === correctAnswer) {
+                // Fetch current score
+                const { data } = await supabaseClient.from('leaderboard').select('total_score').eq('identifier', attendeeId).single();
+                if (data) {
+                    await supabaseClient.from('leaderboard').update({ total_score: data.total_score + 10 }).eq('identifier', attendeeId);
+                }
+            }
+        }
+
+        function lockScreen() {
+            const buttons = document.getElementById('options-container').querySelectorAll('button');
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                btn.classList.add('opacity-60', 'cursor-not-allowed');
+            });
+        }
+    </script>
+</body>
+</html>
