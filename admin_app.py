@@ -5,8 +5,8 @@ from supabase import create_client
 import datetime
 
 # --- 1. CONNECT TO SUPABASE USING CLOUD SECRETS ---
-SUPABASE_URL = st.secrets["https://supabase.com/dashboard/project/pczohlwetcpfublrepbz"]
-SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjem9obHdldGNwZnVibHJlcGJ6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjgyMzU5NSwiZXhwIjoyMDk4Mzk5NTk1fQ.HMk5fQIbpAPf_tJhNTLH30-Bkerq5bImBDRecEIkzYQ"]
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- 2. CONNECT TO GOOGLE SHEETS USING CLOUD SECRETS ---
