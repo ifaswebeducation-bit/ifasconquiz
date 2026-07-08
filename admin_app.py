@@ -33,11 +33,25 @@ st.divider()
 try:
     questions_data = load_questions()
 except Exception as e:
-    # Check if the error has a hidden response message from Google
-    if hasattr(e, 'response') and hasattr(e.response, 'text'):
-        st.error(f"Google connected, but rejected the data request. Detailed Reason:\n\n{e.response.text}")
+    # Dig inside the exception to find the hidden response object
+    resp = getattr(e, 'response', None) or (e.args[0] if getattr(e, 'args', None) else None) or e
+    
+    error_details = ""
+    if hasattr(resp, 'text'):
+        error_details = resp.text
+    elif hasattr(resp, 'content'):
+        error_details = resp.content.decode('utf-8', errors='ignore')
+    elif hasattr(resp, 'json'):
+        try:
+            error_details = str(resp.json())
+        except:
+            pass
+            
+    st.error("Google accepted the connection (HTTP 200), but could not read the spreadsheet data.")
+    if error_details and error_details != "<Response [200]>":
+        st.code(f"Raw Google Message:\n{error_details}", language="json")
     else:
-        st.error(f"Could not read from Google Sheets. Error: {e}")
+        st.code(f"Exception Type: {type(e).__name__}\nDetails: {str(e)}\nArgs: {e.args}", language="text")
     st.stop()
 
 question_options = { 
