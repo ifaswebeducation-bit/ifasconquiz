@@ -33,7 +33,11 @@ st.divider()
 try:
     questions_data = load_questions()
 except Exception as e:
-    st.error(f"Could not connect to Google Sheets. Error: {e}")
+    # Check if the error has a hidden response message from Google
+    if hasattr(e, 'response') and hasattr(e.response, 'text'):
+        st.error(f"Google connected, but rejected the data request. Detailed Reason:\n\n{e.response.text}")
+    else:
+        st.error(f"Could not read from Google Sheets. Error: {e}")
     st.stop()
 
 question_options = { 
